@@ -132,7 +132,9 @@ def build_graph() -> StateGraph:
     # Sub-agents route back to supervisor via Command(goto="supervisor") — no
     # explicit edges needed; LangGraph follows the Command.goto at runtime.
 
-    return builder.compile(name="AgentForPaper")
+    return builder.compile(name="AgentForPaper").with_config(
+        {"recursion_limit": 20}  # max 20 node hops per request (prevents runaway loops)
+    )
 
 
 # Top-level ``graph`` object referenced by langgraph.json
