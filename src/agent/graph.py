@@ -24,7 +24,7 @@ from agent.agents.graph_agent import make_graph_agent_node
 from agent.agents.paper_analyze import make_paper_analyze_node
 from agent.agents.paper_search import make_paper_search_node
 from agent.agents.profile_agent import make_profile_agent_node
-from agent.state import State
+from agent.state import InputState, State
 
 # ── LLM configuration (Qwen via DashScope, OpenAI-compatible) ─────────────────
 
@@ -118,7 +118,7 @@ def build_graph() -> StateGraph:
     graph_agent_node     = make_graph_agent_node(llm)
     profile_agent_node   = make_profile_agent_node(llm)
 
-    builder = StateGraph(State)
+    builder = StateGraph(State, input=InputState)
 
     builder.add_node("supervisor",     supervisor_node)
     builder.add_node("paper_search",   paper_search_node)

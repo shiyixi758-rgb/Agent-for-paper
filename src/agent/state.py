@@ -3,12 +3,19 @@
 from langgraph.graph import MessagesState
 
 
-class State(MessagesState):
-    """Conversation state shared across all agents.
+class InputState(MessagesState):
+    """External input schema — only ``messages`` is required from the caller.
 
-    Inherits ``messages`` (Annotated[list, add_messages]) from MessagesState.
-    ``user_profile`` holds the content of USER.md, loaded at session start
-    by the profile_agent and referenced by every other agent for personalisation.
+    LangGraph Studio and the API use this schema for the input form,
+    so ``user_profile`` is hidden from the user and managed internally.
+    """
+
+
+class State(InputState):
+    """Full internal state shared across all agent nodes.
+
+    ``user_profile`` is populated automatically by profile_agent on the
+    first turn and persisted in the thread checkpoint thereafter.
     """
 
     user_profile: str = ""
