@@ -52,6 +52,6 @@ def make_graph_agent_node(llm: "BaseChatModel"):
     def graph_agent_node(state: "State") -> Command:
         """Build or query evolution graph and return to supervisor."""
         result = react_agent.invoke(state)
-        return Command(goto="supervisor", update={"messages": result["messages"]})
+        return Command(goto="executor", update={"messages": result["messages"]})
 
     return graph_agent_node

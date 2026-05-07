@@ -56,6 +56,6 @@ def make_paper_search_node(llm: "BaseChatModel"):
             input_state["messages"] = [profile_note] + list(state["messages"])
 
         result = react_agent.invoke(input_state)
-        return Command(goto="supervisor", update={"messages": result["messages"]})
+        return Command(goto="executor", update={"messages": result["messages"]})
 
     return paper_search_node

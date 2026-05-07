@@ -57,7 +57,7 @@ def make_profile_agent_node(llm: "BaseChatModel"):
                 new_profile = msg.content
                 break
         return Command(
-            goto="supervisor",
+            goto="executor",
             update={"messages": result["messages"], "user_profile": new_profile},
         )
 

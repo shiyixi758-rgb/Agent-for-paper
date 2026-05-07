@@ -1,11 +1,12 @@
-"""AgentForPaper — LangGraph multi-agent supervisor graph.
+"""AgentForPaper — Plan-and-Execute multi-agent graph.
 
 Architecture:
-    START → supervisor → [paper_search | paper_analyze | graph_agent | profile] → supervisor
-                      ↘ END  (when supervisor decides the task is complete)
+    START → planner → executor ──► agent_node → executor ──► agent_node → ... → END
+                                   (picks plan[current_step])
 
-The supervisor reads SOUL.md as its system prompt and uses structured output
-(RouteDecision) to decide which sub-agent to delegate to next.
+The planner runs ONCE per user turn and produces an ordered list of agents.
+The executor mechanically walks through the list — no LLM judgment needed
+for termination. When current_step >= len(plan), the graph ends.
 """
 
 from __future__ import annotations
@@ -40,41 +41,46 @@ def _get_llm() -> ChatOpenAI:
         model="qwen-plus",
         api_key=api_key,
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        temperature=0.3,
+        temperature=0.2,
     )
 
 
-# ── Supervisor routing ─────────────────────────────────────────────────────────
+# ── Planner ────────────────────────────────────────────────────────────────────
 
 _SOUL_PATH = Path(__file__).parents[3] / "workspace" / "SOUL.md"
 _SOUL_FALLBACK = (
     "You are AgentForPaper, a personal AI research assistant specialising in "
-    "academic papers. Help researchers find, understand, and connect papers.\n"
-    "Always cite sources. Match the user's language (Chinese or English)."
+    "academic papers. Be friendly and helpful. Match the user's language."
 )
 
-_ROUTE_INSTRUCTIONS = """
-You are the supervisor of a multi-agent research assistant.
-Based on the conversation, decide which specialist agent should handle the next step:
+_PLAN_INSTRUCTIONS = """
+You are the planner for a multi-agent research assistant.
+Given the user's latest request, produce an ORDERED list of specialist agents to call.
 
-- general: User is greeting, chatting, asking about you, or the request has nothing to do
-           with papers. This terminates immediately — do NOT use it as a fallback after
-           another agent already answered.
-- paper_search: User wants to FIND or DISCOVER papers on a topic.
-- paper_analyze: User wants to UNDERSTAND or deep-dive a specific paper (by title or arXiv ID).
-- graph_agent: User wants to BUILD or QUERY a citation/influence graph.
-- profile: User explicitly asks to update/view their research profile or reading list.
-- FINISH: A sub-agent just responded and the conversation is clearly complete.
-          Use this ONLY after a sub-agent has already answered — never on the first turn.
+Available agents:
+- general      : greetings, small talk, questions about you, anything NOT paper-related.
+- profile      : load or update the user's research profile (USER.md).
+                 Include as FIRST step when user_profile is empty AND the task is paper-related.
+- paper_search : find / discover / recommend papers on a topic.
+- paper_analyze: deep-dive analysis of a specific paper (by title or arXiv ID).
+- graph_agent  : build or query a citation/influence evolution graph.
 
-Respond ONLY with a RouteDecision JSON object.
+Rules:
+- Respond ONLY with an ExecutionPlan JSON object.
+- Keep the plan minimal — only include steps that are genuinely needed.
+- For a simple greeting, plan = ["general"].
+- For "find papers on X", plan = ["paper_search"]  (or ["profile","paper_search"] if profile empty).
+- For "analyse paper X", plan = ["paper_analyze"].
+- For "find and analyse", plan = ["paper_search", "paper_analyze"].
+- For "build evolution graph", plan = ["graph_agent"].
+- Never repeat the same agent twice in one plan.
 """
 
 
-class RouteDecision(BaseModel):
-    """Routing decision from the supervisor."""
+class ExecutionPlan(BaseModel):
+    """Ordered execution plan produced by the planner."""
 
-    next: Literal["general", "paper_search", "paper_analyze", "graph_agent", "profile", "FINISH"]
+    steps: list[Literal["general", "profile", "paper_search", "paper_analyze", "graph_agent"]]
     reasoning: str
 
 
@@ -84,56 +90,85 @@ def _load_soul() -> str:
     return _SOUL_FALLBACK
 
 
-def make_supervisor_node(llm: ChatOpenAI):
-    """Return the supervisor node function."""
+def make_planner_node(llm: ChatOpenAI):
+    """Return the planner node — runs once per user turn to set plan + current_step=0."""
     soul = _load_soul()
-    system_prompt = soul + "\n\n" + _ROUTE_INSTRUCTIONS
-    router_llm = llm.with_structured_output(RouteDecision)
+    system_prompt = soul + "\n\n" + _PLAN_INSTRUCTIONS
+    plan_llm = llm.with_structured_output(ExecutionPlan)
 
-    def supervisor(
-        state: State,
-    ) -> Command[Literal["general", "paper_search", "paper_analyze", "graph_agent", "profile", "__end__"]]:
-        """Route to the appropriate sub-agent or finish."""
-        messages = [SystemMessage(content=system_prompt)] + list(state["messages"])
-        decision: RouteDecision = router_llm.invoke(messages)
+    def planner(state: State) -> Command[Literal["executor"]]:
+        """Produce an execution plan then hand off to the executor."""
+        # Pass user_profile status in system prompt so planner knows whether to prepend "profile"
+        profile_hint = (
+            "[User profile is already loaded — do NOT include 'profile' in plan unless user explicitly asks to update it.]"
+            if state.get("user_profile")
+            else "[User profile is NOT loaded yet — prepend 'profile' to plan if task is paper-related.]"
+        )
+        messages = [
+            SystemMessage(content=system_prompt + "\n" + profile_hint),
+        ] + list(state["messages"])
 
-        if decision.next == "FINISH":
-            return Command(goto=END)
+        plan: ExecutionPlan = plan_llm.invoke(messages)
 
-        return Command(goto=decision.next)
+        return Command(
+            goto="executor",
+            update={
+                "plan": plan.steps,
+                "current_step": 0,
+            },
+        )
 
-    return supervisor
+    return planner
+
+
+# ── Executor ───────────────────────────────────────────────────────────────────
+
+_AGENT_NAMES = Literal["general", "profile", "paper_search", "paper_analyze", "graph_agent"]
+
+
+def executor(state: State) -> Command:
+    """Pick the next agent from the plan, or end if all steps are done."""
+    plan = state.get("plan", [])
+    step = state.get("current_step", 0)
+
+    if step >= len(plan):
+        return Command(goto=END)
+
+    next_agent = plan[step]
+    return Command(
+        goto=next_agent,
+        update={"current_step": step + 1},
+    )
 
 
 # ── Build the graph ────────────────────────────────────────────────────────────
 
 def build_graph() -> StateGraph:
-    """Compile and return the AgentForPaper supervisor graph."""
+    """Compile and return the AgentForPaper plan-and-execute graph."""
     llm = _get_llm()
 
-    supervisor_node      = make_supervisor_node(llm)
-    general_node         = make_general_agent_node(llm)
-    paper_search_node    = make_paper_search_node(llm)
-    paper_analyze_node   = make_paper_analyze_node(llm)
-    graph_agent_node     = make_graph_agent_node(llm)
-    profile_agent_node   = make_profile_agent_node(llm)
+    planner_node        = make_planner_node(llm)
+    general_node        = make_general_agent_node(llm)
+    paper_search_node   = make_paper_search_node(llm)
+    paper_analyze_node  = make_paper_analyze_node(llm)
+    graph_agent_node    = make_graph_agent_node(llm)
+    profile_agent_node  = make_profile_agent_node(llm)
 
     builder = StateGraph(State, input=InputState)
 
-    builder.add_node("supervisor",     supervisor_node)
-    builder.add_node("general",        general_node)
-    builder.add_node("paper_search",   paper_search_node)
-    builder.add_node("paper_analyze",  paper_analyze_node)
-    builder.add_node("graph_agent",    graph_agent_node)
-    builder.add_node("profile",        profile_agent_node)
+    builder.add_node("planner",       planner_node)
+    builder.add_node("executor",      executor)
+    builder.add_node("general",       general_node)
+    builder.add_node("paper_search",  paper_search_node)
+    builder.add_node("paper_analyze", paper_analyze_node)
+    builder.add_node("graph_agent",   graph_agent_node)
+    builder.add_node("profile",       profile_agent_node)
 
-    builder.add_edge(START, "supervisor")
-
-    # Sub-agents route back to supervisor via Command(goto="supervisor") — no
-    # explicit edges needed; LangGraph follows the Command.goto at runtime.
+    builder.add_edge(START, "planner")
+    # executor → agent edges are handled by Command(goto=...) at runtime
 
     return builder.compile(name="AgentForPaper").with_config(
-        {"recursion_limit": 20}  # max 20 node hops per request (prevents runaway loops)
+        {"recursion_limit": 25}
     )
 
 
