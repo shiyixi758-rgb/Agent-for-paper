@@ -20,6 +20,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
 from pydantic import BaseModel
 
+from agent.agents.general_agent import make_general_agent_node
 from agent.agents.graph_agent import make_graph_agent_node
 from agent.agents.paper_analyze import make_paper_analyze_node
 from agent.agents.paper_search import make_paper_search_node
@@ -56,12 +57,15 @@ _ROUTE_INSTRUCTIONS = """
 You are the supervisor of a multi-agent research assistant.
 Based on the conversation, decide which specialist agent should handle the next step:
 
+- general: User is greeting, chatting, asking about you, or the request is NOT about papers.
+           Also use this when the last agent already gave a complete answer and the user
+           says something like "谢谢" or "好的".
 - paper_search: User wants to FIND or DISCOVER papers on a topic.
-- paper_analyze: User wants to UNDERSTAND or deep-dive a specific paper.
+- paper_analyze: User wants to UNDERSTAND or deep-dive a specific paper (by title or arXiv ID).
 - graph_agent: User wants to BUILD or QUERY a citation/influence graph.
-- profile: User wants to UPDATE their research profile, or this is the first message
-           and the profile has not been loaded yet (user_profile is empty).
-- FINISH: The task is complete and no further agent is needed.
+- profile: User explicitly asks to update/view their research profile or reading list.
+- FINISH: A sub-agent just responded and the conversation is clearly complete.
+          Use this ONLY after a sub-agent has already answered — never on the first turn.
 
 Respond ONLY with a RouteDecision JSON object.
 """
@@ -70,7 +74,7 @@ Respond ONLY with a RouteDecision JSON object.
 class RouteDecision(BaseModel):
     """Routing decision from the supervisor."""
 
-    next: Literal["paper_search", "paper_analyze", "graph_agent", "profile", "FINISH"]
+    next: Literal["general", "paper_search", "paper_analyze", "graph_agent", "profile", "FINISH"]
     reasoning: str
 
 
@@ -88,18 +92,13 @@ def make_supervisor_node(llm: ChatOpenAI):
 
     def supervisor(
         state: State,
-    ) -> Command[Literal["paper_search", "paper_analyze", "graph_agent", "profile", "__end__"]]:
+    ) -> Command[Literal["general", "paper_search", "paper_analyze", "graph_agent", "profile", "__end__"]]:
         """Route to the appropriate sub-agent or finish."""
-        # Auto-route to profile agent on the very first turn if profile is empty
-        if not state.get("user_profile") and len(state["messages"]) <= 1:
-            return Command(goto="profile")
-
         messages = [SystemMessage(content=system_prompt)] + list(state["messages"])
         decision: RouteDecision = router_llm.invoke(messages)
 
         if decision.next == "FINISH":
-            farewell = AIMessage(content="任务完成。如有其他问题请随时告诉我！")
-            return Command(goto=END, update={"messages": [farewell]})
+            return Command(goto=END)
 
         return Command(goto=decision.next)
 
@@ -113,6 +112,7 @@ def build_graph() -> StateGraph:
     llm = _get_llm()
 
     supervisor_node      = make_supervisor_node(llm)
+    general_node         = make_general_agent_node(llm)
     paper_search_node    = make_paper_search_node(llm)
     paper_analyze_node   = make_paper_analyze_node(llm)
     graph_agent_node     = make_graph_agent_node(llm)
@@ -121,6 +121,7 @@ def build_graph() -> StateGraph:
     builder = StateGraph(State, input=InputState)
 
     builder.add_node("supervisor",     supervisor_node)
+    builder.add_node("general",        general_node)
     builder.add_node("paper_search",   paper_search_node)
     builder.add_node("paper_analyze",  paper_analyze_node)
     builder.add_node("graph_agent",    graph_agent_node)
