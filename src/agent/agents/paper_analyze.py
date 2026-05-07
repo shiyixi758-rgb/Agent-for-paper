@@ -7,7 +7,7 @@ Saves the analysis to a local Markdown file. Skill prompt from SKILL.md.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from langchain_core.messages import SystemMessage
 from langgraph.prebuilt import create_react_agent
@@ -47,8 +47,8 @@ def make_paper_analyze_node(llm: "BaseChatModel"):
         prompt=SystemMessage(content=skill_prompt),
     )
 
-    def paper_analyze_node(state: "State") -> Command:
-        """Execute paper analysis and return to supervisor."""
+    def paper_analyze_node(state: "State") -> "Command[Literal['executor']]":
+        """Execute paper analysis and hand off to executor."""
         input_state = dict(state)
         if state.get("user_profile"):
             profile_note = SystemMessage(

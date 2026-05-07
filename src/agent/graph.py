@@ -96,7 +96,7 @@ def make_planner_node(llm: ChatOpenAI):
     system_prompt = soul + "\n\n" + _PLAN_INSTRUCTIONS
     plan_llm = llm.with_structured_output(ExecutionPlan)
 
-    def planner(state: State) -> Command[Literal["executor"]]:
+    def planner(state: State) -> Command[Literal["executor"]]:  # noqa: F821
         """Produce an execution plan then hand off to the executor."""
         # Pass user_profile status in system prompt so planner knows whether to prepend "profile"
         profile_hint = (
@@ -123,10 +123,9 @@ def make_planner_node(llm: ChatOpenAI):
 
 # ── Executor ───────────────────────────────────────────────────────────────────
 
-_AGENT_NAMES = Literal["general", "profile", "paper_search", "paper_analyze", "graph_agent"]
-
-
-def executor(state: State) -> Command:
+def executor(
+    state: State,
+) -> Command[Literal["general", "profile", "paper_search", "paper_analyze", "graph_agent", "__end__"]]:
     """Pick the next agent from the plan, or end if all steps are done."""
     plan = state.get("plan", [])
     step = state.get("current_step", 0)

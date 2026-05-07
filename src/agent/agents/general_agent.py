@@ -8,7 +8,7 @@ No tools needed — responds directly with the LLM.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from langchain_core.messages import AIMessage, SystemMessage
 from langgraph.types import Command
@@ -35,7 +35,7 @@ def make_general_agent_node(llm: "BaseChatModel"):
     """Return a node function that handles general conversation directly."""
     soul = _load_soul()
 
-    def general_agent_node(state: "State") -> Command:
+    def general_agent_node(state: "State") -> "Command[Literal['executor']]":
         """Respond to greetings and off-topic queries without using tools."""
         messages = [SystemMessage(content=soul)] + list(state["messages"])
         response: AIMessage = llm.invoke(messages)

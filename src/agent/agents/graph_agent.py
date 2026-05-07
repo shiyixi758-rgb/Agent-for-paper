@@ -8,7 +8,7 @@ Skill prompt loaded from skills/evolution_graph/SKILL.md.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from langchain_core.messages import SystemMessage
 from langgraph.prebuilt import create_react_agent
@@ -49,8 +49,8 @@ def make_graph_agent_node(llm: "BaseChatModel"):
         prompt=SystemMessage(content=skill_prompt),
     )
 
-    def graph_agent_node(state: "State") -> Command:
-        """Build or query evolution graph and return to supervisor."""
+    def graph_agent_node(state: "State") -> "Command[Literal['executor']]":
+        """Build or query evolution graph and hand off to executor."""
         result = react_agent.invoke(state)
         return Command(goto="executor", update={"messages": result["messages"]})
 

@@ -7,7 +7,7 @@ Uses arXiv API + web search. Skill prompt loaded from skills/paper_search/SKILL.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from langchain_core.messages import SystemMessage
 from langgraph.prebuilt import create_react_agent
@@ -45,8 +45,8 @@ def make_paper_search_node(llm: "BaseChatModel"):
         prompt=SystemMessage(content=skill_prompt),
     )
 
-    def paper_search_node(state: "State") -> Command:
-        """Execute paper search and return to supervisor."""
+    def paper_search_node(state: "State") -> "Command[Literal['executor']]":
+        """Execute paper search and hand off to executor."""
         # Inject user profile as context if available
         input_state = dict(state)
         if state.get("user_profile"):

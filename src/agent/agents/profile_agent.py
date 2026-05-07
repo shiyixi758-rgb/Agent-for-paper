@@ -7,7 +7,7 @@ Skill prompt loaded from skills/user_profile/SKILL.md.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from langchain_core.messages import SystemMessage
 from langgraph.prebuilt import create_react_agent
@@ -44,7 +44,7 @@ def make_profile_agent_node(llm: "BaseChatModel"):
         prompt=SystemMessage(content=skill_prompt),
     )
 
-    def profile_agent_node(state: "State") -> Command:
+    def profile_agent_node(state: "State") -> "Command[Literal['executor']]":
         """Read or update user profile and return to supervisor.
 
         Also propagates the loaded profile into state so other agents can see it.
