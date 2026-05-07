@@ -17,6 +17,7 @@ dependencies = [
     "networkx>=3.3",
     "duckduckgo-search>=6.0",
     "ddgs>=0.1",
+    "langgraph-supervisor>=0.0.1",
 ]
 
 
