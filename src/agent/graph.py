@@ -57,9 +57,9 @@ _ROUTE_INSTRUCTIONS = """
 You are the supervisor of a multi-agent research assistant.
 Based on the conversation, decide which specialist agent should handle the next step:
 
-- general: User is greeting, chatting, asking about you, or the request is NOT about papers.
-           Also use this when the last agent already gave a complete answer and the user
-           says something like "谢谢" or "好的".
+- general: User is greeting, chatting, asking about you, or the request has nothing to do
+           with papers. This terminates immediately — do NOT use it as a fallback after
+           another agent already answered.
 - paper_search: User wants to FIND or DISCOVER papers on a topic.
 - paper_analyze: User wants to UNDERSTAND or deep-dive a specific paper (by title or arXiv ID).
 - graph_agent: User wants to BUILD or QUERY a citation/influence graph.

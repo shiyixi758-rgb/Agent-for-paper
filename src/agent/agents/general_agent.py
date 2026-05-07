@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage, SystemMessage
+from langgraph.graph import END
 from langgraph.types import Command
 
 if TYPE_CHECKING:
@@ -39,6 +40,7 @@ def make_general_agent_node(llm: "BaseChatModel"):
         """Respond to greetings and off-topic queries without using tools."""
         messages = [SystemMessage(content=soul)] + list(state["messages"])
         response: AIMessage = llm.invoke(messages)
-        return Command(goto="supervisor", update={"messages": [response]})
+        # General conversation does not need multi-agent chaining — end directly.
+        return Command(goto=END, update={"messages": [response]})
 
     return general_agent_node
